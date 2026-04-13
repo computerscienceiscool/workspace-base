@@ -1,41 +1,27 @@
-FROM mcr.microsoft.com/devcontainers/base:ubuntu
+# workspace-base — source for the team's gold image.
+#
+# Structure mirrors the block model (see gold-server/glossary.md):
+#   block00 region = Microsoft base + decomk bootstrap tooling
+#   block0  region = decomk runs the workspace-config Makefile
+#
+# When we cut block00 as its own image, the first region moves upstream
+# and this Dockerfile shrinks to ~2 lines.
 
-# Apply OS security updates at build time. The date-based image tag
-# serves as the version pin -- old tags are never deleted, so any
-# prior patch level can be recovered by pulling the appropriate tag.
-# Full apt package pinning is not implemented; see gold-image-spec.md.
-RUN apt-get update -qq && apt-get upgrade -y -qq
+# ---- block00 region --------------------------------------------------------
+FROM mcr.microsoft.com/devcontainers/base:ubuntu@sha256:4bcb1b466771b1ba1ea110e2a27daea2f6093f9527fb75ee59703ec89b5561cb
 
-# System packages (not version-pinned -- see gold-image-spec.md for details)
-# TODO: pin apt packages to specific versions for full reproducibility
-RUN apt-get update -qq && apt-get install -y -qq \
-    vim neovim openssh-client \
-    curl wget git jq make python3-pip \
-    build-essential \
-    libssl-dev zlib1g-dev libbz2-dev libreadline-dev \
-    libsqlite3-dev libffi-dev liblzma-dev \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      golang-go=2:1.22~2build1 \
+      git=1:2.43.0-1ubuntu7.3 \
+      make=4.3-4.1build2 \
+      ca-certificates=20240203 \
+ && rm -rf /var/lib/apt/lists/*
 
-# goenv
-RUN git clone https://github.com/go-nv/goenv.git /usr/local/goenv
-ENV GOENV_ROOT="/usr/local/goenv"
-ENV PATH="$GOENV_ROOT/bin:$GOENV_ROOT/shims:$PATH"
+# TODO: pin decomk to a specific tag/commit once stevegt cuts a stable release.
+RUN go install github.com/stevegt/decomk/cmd/decomk@latest \
+ && mv /root/go/bin/decomk /usr/local/bin/decomk
 
-# Go versions -- add new versions here, never remove old ones
-RUN goenv install 1.24.13
-RUN goenv global 1.24.13
-
-# pyenv
-RUN git clone https://github.com/pyenv/pyenv.git /usr/local/pyenv
-ENV PYENV_ROOT="/usr/local/pyenv"
-ENV PATH="$PYENV_ROOT/bin:$PYENV_ROOT/shims:$PATH"
-
-# Python versions -- add new versions here, never remove old ones
-RUN pyenv install 3.12
-RUN pyenv global 3.12
-
-# PATH setup for login shells
-RUN echo 'export GOENV_ROOT="/usr/local/goenv"' > /etc/profile.d/goenv.sh && \
-    echo 'export PATH="$GOENV_ROOT/bin:$GOENV_ROOT/shims:$PATH"' >> /etc/profile.d/goenv.sh
-RUN echo 'export PYENV_ROOT="/usr/local/pyenv"' > /etc/profile.d/pyenv.sh && \
-    echo 'export PATH="$PYENV_ROOT/bin:$PYENV_ROOT/shims:$PATH"' >> /etc/profile.d/pyenv.sh
+# ---- block0 region ---------------------------------------------------------
+RUN git clone https://github.com/ciwg/workspace-config /var/decomk/conf \
+ && decomk run
